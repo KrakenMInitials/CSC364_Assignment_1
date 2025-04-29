@@ -4,12 +4,7 @@ import time
 import os
 import glob
 from collections import namedtuple
-a = 8010
-b = 8011
-c = 8012
-d = 8013
-e = 8014
-LOCALHOST = "127.0.0.1"
+import queue
 
 # Define a named tuple for the forwarding table
 ForwardingTableRow = namedtuple("ForwardingTableRow", ["destIP", "netmask", "gateway", "interface"])
@@ -46,7 +41,7 @@ def read_csv(path):
     table_list = []
     for line in table:
         entry = line.strip().split(",")
-        entry = (x.strip() for x in entry)
+        entry = list((x.strip() for x in entry))
         converted_entry = ForwardingTableRow(entry[0], entry[1], entry[2], entry[3])
         table_list.append(converted_entry) #made a named tuple see line 9
     table_file.close()
@@ -179,78 +174,148 @@ def write_to_file(path, packet_to_write, send_to_router=None):
         out_file.write(packet_to_write + " " + "to Router " + send_to_router + "\n")
     out_file.close()
 
+
+a = 8002
+b = 8004
+c = 8004
+d = 8013
+e = 8014
+LOCALHOST = "127.0.0.1"
+packet_queue = queue.Queue()
+
 # Main Program
 
-# 0. Remove any output files in the output directory
-# (this just prevents you from having to manually delete the output files before each run).
-files = glob.glob('./output/*')
+import socket
+import threading
+
+def handle_client(conn, addr):
+    try:
+        data = conn.recv(1024).decode()
+        print(f"[{addr}] Received: {data}")
+        packet_queue.put(data)
+    except Exception as e:
+        print(f"Error while handling {addr}: {e}")
+    finally:
+        conn.close() 
+    
+
+def start_server(port):
+    try:
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind(('127.0.0.1', port))
+        server.listen()
+        print(f"[LISTENING] Router is listening on port {port}")
+        
+        try:
+            while True:  # Keep the server running indefinitely
+                conn, addr = server.accept()  # Wait for a client connection
+                print(f"[NEW CONNECTION] {addr} connected")
+                executor.submit(handle_client, conn, addr)  # Assign the client to a thread
+        except KeyboardInterrupt:
+            print("[SERVER SHUTDOWN] Server is shutting down.")
+        finally:
+            server.close() 
+
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        server.close() 
+        
+files = glob.glob('./output/*') #clears output
 for f in files:
     os.remove(f)
 
-# 1. Connect to the appropriate sending ports (based on the network topology diagram).
-# Router 1 acts as a client to Router 2 and Router 4
-client_socket_to_router_2 = create_socket(LOCALHOST, 8002)
-client_socket_to_router_4 = create_socket(LOCALHOST, 8004)
-# 2. Read in and store the forwarding table.
-forwarding_table = read_csv("./input/router_1_table.csv")
-forwarding_table = [ForwardingTableRow(*row) for row in forwarding_table]
-
-# 3. Store the default gateway port.
+forwarding_table_csv = read_csv("./input/router_1_table.csv")
+forwarding_table = [ForwardingTableRow(*row) for row in forwarding_table_csv]
 default_gateway_port = find_default_gateway(forwarding_table)
-# 4. Generate a new forwarding table that includes the IP ranges for matching against destination IPS.
 forwarding_table_with_range = generate_forwarding_table_with_range(forwarding_table)
-# 5. Read in and store the packets.
-packets_table = read_csv("./input/packets.csv")
-packets_table = [Packet(*packet) for packet in packets_table]
 
-# 6. For each packet,
-## for ...:
-        # 7. Store the source IP, destination IP, payload, and TTL.
-        ## sourceIP = ...
-        ## destinationIP = ...
-        ## payload = ...
-        ## ttl = ...
-    # 8. Decrement the TTL by 1 and construct a new packet with the new TTL.
-    ## new_ttl = ...
-    ## new_packet = ...
-    # 9. Convert the destination IP into an integer for comparison purposes.
-    ## destinationIP_bin = ...
-    ## destinationIP_int = ...
-    # 9. Find the appropriate sending port to forward this new packet to.
-    ## ...
-    # 10. If no port is found, then set the sending port to the default port.
-    ## ...
-for packet in packets_table:
-    sourceIP, destinationIP, payload, ttl = packet
-    
+if __name__ == "__main__":
+    threading.Thread(target=start_server, args=(8002)).start() # Start the server on port 8002
+    threading.Thread(target=start_server, args=(8004)).start() # Start the server on port 8004
 
-    if ttl<=0:
-        write_to_file("./output/discarded_by_router_1.txt", str(f"{sourceIP},{destinationIP},{payload},{ttl}"))
-        continue
-    ttl = ttl - 1
+    # ROUTER 1 AS A CLIENT BELOW
+    client_socket_to_router_2 = create_socket(LOCALHOST, 8002)
+    client_socket_to_router_4 = create_socket(LOCALHOST, 8004)
 
-    destinationIP_bin = ip_to_bin(destinationIP)
-    destinationIP_int = int(destinationIP_bin, 2)
+    packets_table = read_csv("./input/packets.csv")
+    packets_table = [Packet(*packet) for packet in packets_table]
 
-    #find nextHop
-    nextHop = None
-    for x in forwarding_table_with_range:
-        if destinationIP_int >= x.ip_range[0] and destinationIP_int <= x.ip_range[1]:
-            nextHop = x.interface
-            break
-    if nextHop is None:
-        nextHop = default_gateway_port
-    
-    if nextHop == LOCALHOST:
-        write_to_file("./output/out_router_1.txt", payload)
-    else:
-        new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
-        write_to_file("./output/sent_by_router_1.txt", new_packet, send_to_router=nextHop)
-        if nextHop == 8002:
-            client_socket_to_router_2.sendall(new_packet.encode())
-        elif nextHop == 8004:
-            client_socket_to_router_4.sendall(new_packet.encode())
+
+    def process_packets(packet : Packet): 
+        sourceIP, destinationIP, payload, ttl = packet #all remains are strings, accessed as corresponding data type"
+
+
+        if int(ttl)<=0:
+            write_to_file("./output/discarded_by_router_1.txt", str(f"{sourceIP},{destinationIP},{payload},{ttl}"))
+            return
+        ttl = int(ttl) - 1
+
+        destinationIP_bin = ip_to_bin(destinationIP)
+        destinationIP_int = int(destinationIP_bin, 2)
+
+        #find nextHop
+        nextHop = None
+        for x in forwarding_table_with_range:
+            if destinationIP_int >= x.ip_range[0] and destinationIP_int <= x.ip_range[1]:
+                nextHop = x.interface
+                break
+        if nextHop is None:
+            nextHop = default_gateway_port
         
+        if nextHop == LOCALHOST:
+            write_to_file("./output/out_router_1.txt", payload)
+        else:
+            new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
+            write_to_file("./output/sent_by_router_1.txt", new_packet, send_to_router=nextHop)
+            if nextHop == 8002:
+                client_socket_to_router_2.sendall(new_packet.encode())
+            elif nextHop == 8004:
+                client_socket_to_router_4.sendall(new_packet.encode())
+        return
+    
+    for packet in packets_table:
+        process_packets(packet)
+    
+    while(True):
+        while(not packet_queue): #busy waiting for packets to be received
+            time.sleep(1)
+        packet = packet_queue.get()
+        packet = generate_forwarding_table_with_range(list(packet.split(",")))
+        packet = Packet(*packet)
+        process_packets(packet)
+        #time.sleep(1)
+        
+
+#######################################################    
+    
+    # 0. Remove any output files in the output directory
+    # (this just prevents you from having to manually delete the output files before each run).
+    # 1. Connect to the appropriate sending ports (based on the network topology diagram).
+    # Router 1 acts as a client to Router 2 and Router 4
+    # 2. Read in and store the forwarding table.
+    # 3. Store the default gateway port.
+    # 4. Generate a new forwarding table that includes the IP ranges for matching against destination IPS.
+    # 5. Read in and store the packets.
+  
+    # 6. For each packet,
+    ## for ...:
+            # 7. Store the source IP, destination IP, payload, and TTL.
+            ## sourceIP = ...
+            ## destinationIP = ...
+            ## payload = ...
+            ## ttl = ...
+        # 8. Decrement the TTL by 1 and construct a new packet with the new TTL.
+        ## new_ttl = ...
+        ## new_packet = ...
+        # 9. Convert the destination IP into an integer for comparison purposes.
+        ## destinationIP_bin = ...
+        ## destinationIP_int = ...
+        # 9. Find the appropriate sending port to forward this new packet to.
+        ## ...
+        # 10. If no port is found, then set the sending port to the default port.
+        ## ...
+
     # 11. Either
     # (a) send the new packet to the appropriate port (and append it to sent_by_router_1.txt),
     # (b) append the payload to out_router_1.txt without forwarding because this router is the last hop, or
@@ -269,4 +334,3 @@ for packet in packets_table:
         ## ...
 
     # Sleep for some time before sending the next packet (for debugging purposes)
-    time.sleep(1)
