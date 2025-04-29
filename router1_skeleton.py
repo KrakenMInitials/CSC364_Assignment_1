@@ -5,6 +5,7 @@ import os
 import glob
 from collections import namedtuple
 import queue
+from concurrent.futures import ThreadPoolExecutor
 
 # Define a named tuple for the forwarding table
 ForwardingTableRow = namedtuple("ForwardingTableRow", ["destIP", "netmask", "gateway", "interface"])
@@ -15,15 +16,21 @@ Packet = namedtuple("Packet", ["sourceIP", "destIP", "payload", "ttl"])
 # The purpose of this function is to set up a socket connection.
 def create_socket(host, port):
     # 1. Create a socket.
-    soc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     # 2. Try connecting the socket to the host and port.
-    try:
-        soc.connect((host, port))
-    except:
-        print("Connection Error to", port)
-        sys.exit()
     # 3. Return the connected socket.
-    return soc
+    while (True):
+        try:
+            soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            soc.connect((host, port))
+            print(f"Router on {port} ready to recieve.")
+            return soc
+        except ConnectionRefusedError:
+            print(f"Router on {port} not ready to recieve. Retrying...")
+            time.sleep(2)
+            continue
+        except:
+            print("Unexpected Connection Error to", port)
+            sys.exit()
 
 # The purpose of this function is to read in a CSV file.
 def read_csv(path):
@@ -167,7 +174,11 @@ def write_to_file(path, packet_to_write, send_to_router=None):
     ## if ...:
     # 3. Else if this router is sending, then append the intended recipient, along with the packet, to the output file.
     # 4. Close the output file.
-    out_file = open(path, "a")
+    try:
+        out_file = open(path, "a")
+    except FileNotFoundError:
+        out_file = open(path, "x")
+
     if send_to_router is None:
         out_file.write(packet_to_write + "\n")
     else:
@@ -175,9 +186,9 @@ def write_to_file(path, packet_to_write, send_to_router=None):
     out_file.close()
 
 
-a = 8002
-b = 8004
-c = 8004
+a = 8010
+b = 8011
+c = 8012
 d = 8013
 e = 8014
 LOCALHOST = "127.0.0.1"
@@ -201,21 +212,21 @@ def handle_client(conn, addr):
 
 def start_server(port):
     try:
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.bind(('127.0.0.1', port))
-        server.listen()
-        print(f"[LISTENING] Router is listening on port {port}")
-        
-        try:
-            while True:  # Keep the server running indefinitely
-                conn, addr = server.accept()  # Wait for a client connection
-                print(f"[NEW CONNECTION] {addr} connected")
-                executor.submit(handle_client, conn, addr)  # Assign the client to a thread
-        except KeyboardInterrupt:
-            print("[SERVER SHUTDOWN] Server is shutting down.")
-        finally:
-            server.close() 
-
+        with ThreadPoolExecutor() as executor:
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.bind(('127.0.0.1', port))
+            server.listen()
+            print(f"[LISTENING] Router is listening on port {port}")
+            
+            try:
+                while not shutdown_event:  # Keep the server running indefinitely
+                    conn, addr = server.accept()  # Wait for a client connection
+                    print(f"[NEW CONNECTION] {addr} connected")
+                    executor.submit(handle_client, conn, addr)  # Assign the client to a thread
+            except KeyboardInterrupt:
+                print("[SERVER SHUTDOWN] Server is shutting down.")
+            finally:
+                server.close() 
     except Exception as e:
         print(f"Error: {e}")
     finally:
@@ -230,9 +241,11 @@ forwarding_table = [ForwardingTableRow(*row) for row in forwarding_table_csv]
 default_gateway_port = find_default_gateway(forwarding_table)
 forwarding_table_with_range = generate_forwarding_table_with_range(forwarding_table)
 
+shutdown_event = threading.Event()
+
 if __name__ == "__main__":
-    threading.Thread(target=start_server, args=(8002)).start() # Start the server on port 8002
-    threading.Thread(target=start_server, args=(8004)).start() # Start the server on port 8004
+    server1 = threading.Thread(target=start_server, args=([a])).start() # port 8010 to router 2
+    server2 = threading.Thread(target=start_server, args=([b])).start() # port 8011 to router 4
 
     # ROUTER 1 AS A CLIENT BELOW
     client_socket_to_router_2 = create_socket(LOCALHOST, 8002)
@@ -251,8 +264,7 @@ if __name__ == "__main__":
             return
         ttl = int(ttl) - 1
 
-        destinationIP_bin = ip_to_bin(destinationIP)
-        destinationIP_int = int(destinationIP_bin, 2)
+        destinationIP_int = ip_to_bin(destinationIP)
 
         #find nextHop
         nextHop = None
@@ -277,15 +289,23 @@ if __name__ == "__main__":
     for packet in packets_table:
         process_packets(packet)
     
-    while(True):
-        while(not packet_queue): #busy waiting for packets to be received
-            time.sleep(1)
-        packet = packet_queue.get()
-        packet = generate_forwarding_table_with_range(list(packet.split(",")))
-        packet = Packet(*packet)
-        process_packets(packet)
-        #time.sleep(1)
-        
+    print("Done processing packets.csv: Waiting for incoming packets...")
+    try:
+        while True:
+            try:
+                packet = packet_queue.get(timeout=1)  # waits up to 1 sec, raises Empty if nothing
+                packet = generate_forwarding_table_with_range(list(packet.split(",")))
+                packet = Packet(*packet)
+                process_packets(packet)
+            except queue.Empty:
+                continue 
+    except KeyboardInterrupt:
+        print("Shutting down router1.py...")
+        shutdown_event.set()  # Signal the server to shut down
+        client_socket_to_router_2.close()
+        client_socket_to_router_4.close()  # Close the client sockets
+        print("Router 1 shutdown complete.")
+        exit(0)
 
 #######################################################    
     
