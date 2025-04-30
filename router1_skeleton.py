@@ -6,6 +6,7 @@ import glob
 from collections import namedtuple
 import queue
 from concurrent.futures import ThreadPoolExecutor
+from globals import *
 
 # Define a named tuple for the forwarding table
 ForwardingTableRow = namedtuple("ForwardingTableRow", ["destIP", "netmask", "gateway", "interface"])
@@ -20,7 +21,7 @@ def create_socket(host, port):
     # 3. Return the connected socket.
     while (True):
         try:
-            soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            soc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             soc.connect((host, port))
             print(f"Router on {port} ready to recieve.")
             return soc
@@ -182,16 +183,9 @@ def write_to_file(path, packet_to_write, send_to_router=None):
     if send_to_router is None:
         out_file.write(packet_to_write + "\n")
     else:
-        out_file.write(packet_to_write + " " + "to Router " + send_to_router + "\n")
+        out_file.write(packet_to_write + " " + "to Router " + str(send_to_router) + "\n")
     out_file.close()
 
-
-a = 8010
-b = 8011
-c = 8012
-d = 8013
-e = 8014
-LOCALHOST = "127.0.0.1"
 packet_queue = queue.Queue()
 
 # Main Program
@@ -244,8 +238,8 @@ forwarding_table_with_range = generate_forwarding_table_with_range(forwarding_ta
 shutdown_event = threading.Event()
 
 if __name__ == "__main__":
-    server1 = threading.Thread(target=start_server, args=([a])).start() # port 8010 to router 2
-    server2 = threading.Thread(target=start_server, args=([b])).start() # port 8011 to router 4
+    server1 = threading.Thread(target=start_server, args=([a])).start() # port 8010 for router 2
+    server2 = threading.Thread(target=start_server, args=([b])).start() # port 8011 for router 4
 
     # ROUTER 1 AS A CLIENT BELOW
     client_socket_to_router_2 = create_socket(LOCALHOST, 8002)
@@ -279,10 +273,11 @@ if __name__ == "__main__":
             write_to_file("./output/out_router_1.txt", payload)
         else:
             new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
-            write_to_file("./output/sent_by_router_1.txt", new_packet, send_to_router=nextHop)
-            if nextHop == 8002:
+            if int(nextHop) == 8002:
+                write_to_file("./output/sent_by_router_1.txt", new_packet, send_to_router=2)
                 client_socket_to_router_2.sendall(new_packet.encode())
-            elif nextHop == 8004:
+            elif int(nextHop) == 8004:
+                write_to_file("./output/sent_by_router_1.txt", new_packet, send_to_router=4)
                 client_socket_to_router_4.sendall(new_packet.encode())
         return
     
