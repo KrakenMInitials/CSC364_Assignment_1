@@ -84,25 +84,22 @@ if __name__ == "__main__":
             return
 
         new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
-        print (f"Next hop: {nextHop} {type(nextHop)}")
+
         if int(nextHop) == a:
             print(f"Sending packet to router 1: {new_packet}")
             write_to_file("./output/sent_by_router_2txt", new_packet, send_to_router=1)
-            print("hit")
             client_socket_to_router_1.sendall(new_packet.encode())
         elif int(nextHop) == 8003:
-            #print(f"Sending packet to router 3: {new_packet}")
+            print(f"Sending packet to router 3: {new_packet}")
             write_to_file("./output/sent_by_router_2.txt", new_packet, send_to_router=3)
-            print("hit IMP")
-            #client_socket_to_router_3.sendall(new_packet.encode())
+            client_socket_to_router_3.sendall(new_packet.encode())
         return
     
     try:
         while True:
             try:
                 packet = packet_queue.get(timeout=1) # waits up to 1 sec, raises Empty if nothing
-                print(f"Running through {packet}")
-                #time.sleep(0.5) # Sleep for a short duration to simulate processing time
+                write_to_file("./output/received_by_router_2.txt", packet)
                 formattedPacket = createForwardingTableRow(packet)
                 process_packets(formattedPacket) #process the packet
             except queue.Empty:

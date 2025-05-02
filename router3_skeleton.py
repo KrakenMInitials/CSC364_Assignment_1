@@ -74,6 +74,7 @@ if __name__ == "__main__":
 
         new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
         if int(nextHop) == d: #exists but should never hit
+            print(f"Sending packet to router 2: {new_packet}")
             write_to_file("./output/sent_by_router_3.txt", new_packet, send_to_router=3)
             client_socket_to_router_2.sendall(new_packet.encode())
         return
@@ -82,8 +83,7 @@ if __name__ == "__main__":
         while True:
             try:
                 packet = packet_queue.get(timeout=1) # waits up to 1 sec, raises Empty if nothing
-                #time.sleep(0.5)
-                print(f"raw packet in q: {packet}")
+                write_to_file("./output/received_by_router_3.txt", packet)
                 formattedPacket = createForwardingTableRow(packet)
                 process_packets(formattedPacket) #process the packet
             except queue.Empty:
