@@ -5,6 +5,7 @@ b = 8011
 c = 8012
 d = 8013
 e = 8014
+f = 8015
 LOCALHOST = "127.0.0.1"
 
 # Assign ports each router will connect *to*

@@ -24,13 +24,11 @@ from router1_skeleton import (
 from globals import *
 import socket
 import threading
-
 #import helper functions from router1_skeleton.py
-
 
 # Main Program
 
-forwarding_table_csv = read_csv("./input/router_2_table.csv")
+forwarding_table_csv = read_csv("./input/router_5_table.csv")
 forwarding_table = [ForwardingTableRow(*row) for row in forwarding_table_csv]
 default_gateway_port = find_default_gateway(forwarding_table)
 forwarding_table_with_range = generate_forwarding_table_with_range(forwarding_table)
@@ -39,23 +37,20 @@ shutdown_event = threading.Event()
 
 packet_queue = queue.Queue()
 
-#server ports: 8002, c, d
-#client ports: a, 8003, 8004 (if inc router 2)
+#server ports: 8003
+#client ports: d
 
 if __name__ == "__main__":
-    server1 = threading.Thread(target=start_server, args=(8002,packet_queue)).start() # port 8002 for router 1
-    server2 = threading.Thread(target=start_server, args=(c,packet_queue)).start() # port c for router 4
-    server3 = threading.Thread(target=start_server, args=(d,packet_queue)).start() # port d for router 3
+    server1 = threading.Thread(target=start_server, args=(8005,packet_queue)).start() # port 8005 for router 4
 
     time.sleep(5)
-    
-    # ROUTER 2 AS A CLIENT BELOW
-    client_socket_to_router_1 = create_socket(LOCALHOST, a) 
-    client_socket_to_router_3 = create_socket(LOCALHOST, 8003)
-    client_socket_to_router_4 = create_socket(LOCALHOST, 8004)
+
+    # ROUTER 3 AS A CLIENT BELOW
+    client_socket_to_router_4 = create_socket(LOCALHOST, e) 
 
     def process_packets(packet : Packet): 
         sourceIP, destinationIP, payload, ttl = packet #all remains are strings, accessed as corresponding data type"
+        
         destinationIP_int = ip_to_bin(destinationIP)
 
         #find nextHop
@@ -66,32 +61,22 @@ if __name__ == "__main__":
                 break
         if nextHop is None:
             nextHop = default_gateway_port
-
+        
         if nextHop == LOCALHOST:
-            write_to_file("./output/out_router_2.txt", payload)
+            write_to_file("./output/out_router_5.txt", payload)
             return
 
         ttl = int(ttl) - 1
         if int(ttl)<=0:
-            write_to_file("./output/discarded_by_router_2.txt", str(f"{sourceIP},{destinationIP},{payload},{ttl}"))
+            write_to_file("./output/discarded_by_router_5.txt", str(f"{sourceIP},{destinationIP},{payload},{ttl}"))
             return
-
-        new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
 
         #below varies per router
 
-        if int(nextHop) == a:
-            print(f"Sending packet to router 1: {new_packet}")
-            write_to_file("./output/sent_by_router_2txt", new_packet, send_to_router=1)
-            client_socket_to_router_1.sendall(new_packet.encode())
-        elif int(nextHop) == 8003:
-            print(f"Sending packet to router 3: {new_packet}")
-            write_to_file("./output/sent_by_router_2.txt", new_packet, send_to_router=3)
-            client_socket_to_router_3.sendall(new_packet.encode())
-        elif int(nextHop) == 8004:
-            #ROUTER 2 SHOULD NEVER END UP SENDING TO ROUTER 4 MAYBE lol idk output files has
-            print(f"Sending packet to router 4: {new_packet}")
-            write_to_file("./output/sent_by_router_2.txt", new_packet, send_to_router=4)
+        new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
+        if int(nextHop) == e: #client to router 4 on e
+            print(f"Sending packet to router 2: {new_packet}")
+            write_to_file("./output/sent_by_router_5.txt", new_packet, send_to_router=4)
             client_socket_to_router_4.sendall(new_packet.encode())
         return
     
@@ -99,15 +84,14 @@ if __name__ == "__main__":
         while True:
             try:
                 packet = packet_queue.get(timeout=1) # waits up to 1 sec, raises Empty if nothing
-                write_to_file("./output/received_by_router_2.txt", packet)
+                write_to_file("./output/received_by_router_5.txt", packet)
                 formattedPacket = createForwardingTableRow(packet)
                 process_packets(formattedPacket) #process the packet
             except queue.Empty:
                 continue 
     except KeyboardInterrupt:
-        print("Shutting down router2.py...")
+        print("Shutting down router 5.py...")
         shutdown_event.set()  # Signal the server to shut down
-        client_socket_to_router_1.close()
-        client_socket_to_router_3.close()  # Close the client sockets
-        print("Router 2 shutdown complete.")
+        client_socket_to_router_2.close()
+        print("Router 5 shutdown complete.")
         exit(0)

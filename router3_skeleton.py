@@ -67,10 +67,11 @@ if __name__ == "__main__":
             return
 
         ttl = int(ttl) - 1
-
         if int(ttl)<=0:
             write_to_file("./output/discarded_by_router_3.txt", str(f"{sourceIP},{destinationIP},{payload},{ttl}"))
             return
+
+        #below varies per router
 
         new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
         if int(nextHop) == d: #exists but should never hit

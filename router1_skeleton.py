@@ -15,7 +15,7 @@ ForwardingTableWithRangeRow = namedtuple("ForwardingTableWithRangeRow", ["ip_ran
 Packet = namedtuple("Packet", ["sourceIP", "destIP", "payload", "ttl"])
 # Helper Functions
 
-def create_socket(host, port, readyEvent=None):
+def create_socket(host, port):
     # 1. Create a socket.
     # 2. Try connecting the socket to the host and port.
     # 3. Return the connected socket.
@@ -23,8 +23,6 @@ def create_socket(host, port, readyEvent=None):
         try:
             soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             soc.connect((host, port))
-            if readyEvent is not None:
-                readyEvent.set()
             print(f"[CLIENT] Client socket created on {port}.")
             return soc
         except ConnectionRefusedError:
@@ -179,30 +177,24 @@ shutdown_event = threading.Event()
 #server ports: 8010, 8011
 #client ports: 8002, 8004
 
-socket_ready_events = {
-    8002: threading.Event(),
-    #8004: threading.Event(),
-}
-
 if __name__ == "__main__":
     files = glob.glob('./output/*') #clears output
     for f in files:
         os.remove(f)
 
     server1 = threading.Thread(target=start_server, args=(a,packet_queue)).start() # port 8010 for router 2
-    #server2 = threading.Thread(target=start_server, args=(b,)).start() # port 8011 for router 4
+    server2 = threading.Thread(target=start_server, args=(b,packet_queue)).start() # port b for router 4
 
     time.sleep(5)
     # ROUTER 1 AS A CLIENT BELOW
-    client_socket_to_router_2 = create_socket(LOCALHOST, 8002, readyEvent=socket_ready_events[8002])
-    #client_socket_to_router_4 = create_socket(LOCALHOST, 8004, readyEvent=socket_ready_events[8004])
+    client_socket_to_router_2 = create_socket(LOCALHOST, 8002)
+    client_socket_to_router_4 = create_socket(LOCALHOST, 8004)
 
     packets_table = read_csv("./input/packets.csv")
     packets_table = [Packet(*packet) for packet in packets_table]
 
     def process_packets(packet : Packet): 
         sourceIP, destinationIP, payload, ttl = packet #all remains are strings, accessed as corresponding data type"
-
         destinationIP_int = ip_to_bin(destinationIP)
 
         #find nextHop
@@ -219,23 +211,24 @@ if __name__ == "__main__":
             return
 
         ttl = int(ttl) - 1
-
         if int(ttl)<=0:
             print("DISCARD:", packet)
             write_to_file("./output/discarded_by_router_1.txt", str(f"{sourceIP},{destinationIP},{payload},{ttl}"))
             return
 
         new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
-        if int(nextHop) == 8002:
+
+        #below varies per router
+        
+        if int(nextHop) == 8002: #client to router 2 on 8002
             write_to_file("./output/sent_by_router_1.txt", new_packet, send_to_router=2)
-            try:
-                print(f"Sending packet to router 2: {new_packet}")
-                client_socket_to_router_2.sendall(new_packet.encode())
-            except ConnectionAbortedError as e:
-                print(f"Connection was aborted: {e}")
-        elif int(nextHop) == 8004:
+            print(f"Sending packet to router 2: {new_packet}")
+            client_socket_to_router_2.sendall(new_packet.encode())
+
+        elif int(nextHop) == 8004: #client to router 4 on 8004
             write_to_file("./output/sent_by_router_1.txt", new_packet, send_to_router=4)
-            #client_socket_to_router_4.sendall(new_packet.encode())
+            print(f"Sending packet to router 4: {new_packet}")
+            client_socket_to_router_4.sendall(new_packet.encode())
         return
     
     for packet in packets_table:
