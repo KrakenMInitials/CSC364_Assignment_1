@@ -19,7 +19,8 @@ from router1_skeleton import (
     ForwardingTableRow,
     ForwardingTableWithRangeRow,
     Packet,
-    createForwardingTableRow
+    createForwardingTableRow,
+    wait_for_client_sockets
 )
 from globals import *
 import socket
@@ -41,11 +42,6 @@ packet_queue = queue.Queue()
 
 #server ports: 8002, c, d
 #client ports: a, 8003
-
-socket_ready_events = {
-    a: threading.Event(),
-    #8003: threading.Event(),
-}
 
 if __name__ == "__main__":
     server1 = threading.Thread(target=start_server, args=(8002,packet_queue)).start() # port 8002 for router 1
@@ -84,19 +80,18 @@ if __name__ == "__main__":
             return
 
         new_packet = f"{sourceIP},{destinationIP},{payload},{ttl}"
-        print (f"Next hop: {nextHop} {type(nextHop)}")
-        if int(nextHop) == a:
+        if nextHop == a:
             print(f"Sending packet to router 1: {new_packet}")
             write_to_file("./output/sent_by_router_2txt", new_packet, send_to_router=1)
-            print("hit")
             client_socket_to_router_1.sendall(new_packet.encode())
-        elif int(nextHop) == 8003:
+        elif nextHop == 8003:
             #print(f"Sending packet to router 3: {new_packet}")
             write_to_file("./output/sent_by_router_2.txt", new_packet, send_to_router=3)
-            print("hit IMP")
             #client_socket_to_router_3.sendall(new_packet.encode())
         return
     
+    #wait_for_client_sockets(2)
+
     try:
         while True:
             try:
